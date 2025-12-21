@@ -4,7 +4,7 @@ class MementoApp {
     constructor() {
         this.apiUrl = 'http://localhost:5000/api';
         this.token = localStorage.getItem('memento_token') || null;
-        this.currentUser = localStorage.getItem('memento_username') || null;
+        this.currentUserEmail = localStorage.getItem('memento_email') || null;
         this.authMode = 'login';
 
         this.timeLeft = 0;
@@ -13,8 +13,10 @@ class MementoApp {
 
         // DOM Elements
         this.authScreen = document.getElementById('authScreen');
+        this.verifyScreen = document.getElementById('verifyScreen');
         this.mainApp = document.getElementById('mainApp');
         this.authForm = document.getElementById('authForm');
+        this.verifyForm = document.getElementById('verifyForm');
         this.tabLogin = document.getElementById('tabLogin');
         this.tabSignup = document.getElementById('tabSignup');
         this.authSubmitBtn = document.getElementById('authSubmitBtn');
@@ -25,6 +27,8 @@ class MementoApp {
         this.messageModal = document.getElementById('messageModal');
         this.messageForm = document.getElementById('messageForm');
         this.simulationIndicator = document.getElementById('simulationIndicator');
+        this.verifyEmailText = document.getElementById('verifyEmailText');
+        this.backToLoginBtn = document.getElementById('backToLoginBtn');
 
         this.init();
     }
@@ -43,7 +47,9 @@ class MementoApp {
         this.tabLogin.onclick = () => this.switchAuthMode('login');
         this.tabSignup.onclick = () => this.switchAuthMode('signup');
         this.authForm.onsubmit = (e) => { e.preventDefault(); this.handleAuth(); };
+        this.verifyForm.onsubmit = (e) => { e.preventDefault(); this.handleVerify(); };
         this.logoutBtn.onclick = () => this.logout();
+        this.backToLoginBtn.onclick = () => this.showAuth();
 
         document.getElementById('IAmAliveBtn').onclick = () => this.sendHeartbeat();
         document.getElementById('addMessageBtn').onclick = () => this.openModal();
@@ -63,7 +69,7 @@ class MementoApp {
     }
 
     async handleAuth() {
-        const username = document.getElementById('authUsername').value;
+        const email = document.getElementById('authEmail').value;
         const password = document.getElementById('authPassword').value;
         const endpoint = this.authMode === 'login' ? '/login' : '/register';
 
@@ -71,24 +77,29 @@ class MementoApp {
             const resp = await fetch(this.apiUrl + endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ email, password })
             });
             const data = await resp.json();
 
             if (resp.ok) {
                 if (this.authMode === 'login') {
                     this.token = data.access_token;
-                    this.currentUser = data.username;
+                    this.currentUserEmail = data.email;
                     localStorage.setItem('memento_token', this.token);
-                    localStorage.setItem('memento_username', this.currentUser);
+                    localStorage.setItem('memento_email', this.currentUserEmail);
                     await this.refreshState();
                     this.showApp();
                 } else {
-                    alert("Account created. Please login.");
-                    this.switchAuthMode('login');
+                    this.pendingEmail = email;
+                    this.showVerify(email);
                 }
             } else {
-                alert(data.msg || "Action failed");
+                if (resp.status === 403) {
+                    this.pendingEmail = email;
+                    this.showVerify(email);
+                } else {
+                    alert(data.msg || "Action failed");
+                }
             }
         } catch (err) {
             console.error(err);
@@ -96,23 +107,53 @@ class MementoApp {
         }
     }
 
+    async handleVerify() {
+        const code = document.getElementById('verifyCode').value;
+        try {
+            const resp = await fetch(this.apiUrl + '/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: this.pendingEmail, code })
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                alert(data.msg);
+                this.showAuth();
+                this.switchAuthMode('login');
+            } else {
+                alert(data.msg);
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Verification failed.");
+        }
+    }
+
     logout() {
         this.stopTimer();
         this.token = null;
-        this.currentUser = null;
+        this.currentUserEmail = null;
         localStorage.clear();
         this.showAuth();
     }
 
     showAuth() {
         this.authScreen.classList.remove('hidden');
+        this.verifyScreen.classList.add('hidden');
         this.mainApp.classList.add('hidden');
+    }
+
+    showVerify(email) {
+        this.authScreen.classList.add('hidden');
+        this.verifyScreen.classList.remove('hidden');
+        this.mainApp.classList.add('hidden');
+        this.verifyEmailText.textContent = `A 6-digit code has been sent to ${email}`;
     }
 
     showApp() {
         this.authScreen.classList.add('hidden');
         this.mainApp.classList.remove('hidden');
-        this.displayUsername.textContent = `@${this.currentUser}`;
+        this.displayUsername.textContent = this.currentUserEmail;
         this.renderMessages();
         this.startTimer();
     }

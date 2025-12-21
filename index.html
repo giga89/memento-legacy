@@ -27,8 +27,8 @@
 
             <form id="authForm">
                 <div class="form-group" style="text-align: left;">
-                    <label>Username</label>
-                    <input type="text" id="authUsername" required>
+                    <label>Email Address</label>
+                    <input type="email" id="authEmail" placeholder="name@example.com" required>
                 </div>
                 <div class="form-group" style="text-align: left;">
                     <label>Password</label>
@@ -37,6 +37,24 @@
                 <button type="submit" class="pulse-button" style="width: 100%; margin-top: 1rem;"
                     id="authSubmitBtn">ENTER THE VAULT</button>
             </form>
+        </div>
+    </div>
+
+    <div id="verifyScreen" class="auth-container hidden">
+        <div class="glass-panel auth-card fade-in">
+            <h1 class="title-gradient" style="font-size: 2.5rem; margin-bottom: 1rem;">VERIFY EMAIL</h1>
+            <p style="color: var(--text-secondary); margin-bottom: 2rem;" id="verifyEmailText">Check your inbox for the
+                code.</p>
+
+            <form id="verifyForm">
+                <div class="form-group" style="text-align: left;">
+                    <label>6-Digit Code</label>
+                    <input type="text" id="verifyCode" maxlength="6" pattern="\d{6}" placeholder="123456" required>
+                </div>
+                <button type="submit" class="pulse-button" style="width: 100%; margin-top: 1rem;">ACTIVATE
+                    ACCOUNT</button>
+            </form>
+            <button class="btn" style="margin-top: 1.5rem;" id="backToLoginBtn">Back to Login</button>
         </div>
     </div>
 
