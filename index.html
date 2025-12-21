@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memento | Digital Legacy & Dead Man's Switch</title>
+    <meta name="description"
+        content="Secure your digital legacy. A premium Dead Man's Switch for your most important messages.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="authScreen" class="auth-container">
+        <div class="glass-panel auth-card fade-in">
+            <h1 class="title-gradient" style="font-size: 2.5rem; margin-bottom: 1rem;">MEMENTO</h1>
+            <p style="color: var(--text-secondary); margin-bottom: 2rem;">Protect your legacy.</p>
+
+            <div class="auth-tabs">
+                <div class="auth-tab active" id="tabLogin">Login</div>
+                <div class="auth-tab" id="tabSignup">Signup</div>
+            </div>
+
+            <form id="authForm">
+                <div class="form-group" style="text-align: left;">
+                    <label>Username</label>
+                    <input type="text" id="authUsername" required>
+                </div>
+                <div class="form-group" style="text-align: left;">
+                    <label>Password</label>
+                    <input type="password" id="authPassword" required>
+                </div>
+                <button type="submit" class="pulse-button" style="width: 100%; margin-top: 1rem;"
+                    id="authSubmitBtn">ENTER THE VAULT</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="app-container fade-in hidden" id="mainApp">
+        <header>
+            <div class="logo">MEMENTO</div>
+            <div class="user-profile">
+                <span id="displayUsername">User</span>
+                <button class="btn btn-logout" id="logoutBtn">Logout</button>
+                <div class="simulation-status" id="simulationIndicator"></div>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- Left Column: The Switch -->
+            <section class="glass-panel status-card">
+                <h2 class="title-gradient">HEARTBEAT</h2>
+                <p style="color: var(--text-secondary); margin-top: 1rem;">Time until dispatch</p>
+                <div class="heartbeat-timer" id="timer">48:00:00</div>
+                <button class="pulse-button" id="IAmAliveBtn">I AM ALIVE</button>
+
+                <div class="controls-panel">
+                    <button class="btn btn-simulation" id="toggleSimulation">SIMULATION MODE</button>
+                    <button class="btn btn-panic" id="panicBtn">PANIC BUTTON</button>
+                </div>
+            </section>
+
+            <!-- Right Column: Vault -->
+            <section class="glass-panel">
+                <div class="vault-header">
+                    <h2 class="title-gradient">MESSAGE VAULT</h2>
+                    <button class="btn" id="addMessageBtn">+ NEW MESSAGE</button>
+                </div>
+                <div id="messageList">
+                    <!-- Messages will be injected here -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-overlay" id="messageModal">
+        <div class="glass-panel modal-content">
+            <h2 class="title-gradient" id="modalTitle">New Legacy Message</h2>
+            <form id="messageForm" style="margin-top: 2rem;">
+                <input type="hidden" id="editIndex">
+                <div class="form-group">
+                    <label>Recipient Name</label>
+                    <input type="text" id="recipient" placeholder="e.g. Elena Rossi" required>
+                </div>
+                <div class="form-group">
+                    <label>Delivery Channel</label>
+                    <select id="channel">
+                        <option value="WhatsApp">WhatsApp</option>
+                        <option value="Telegram">Telegram</option>
+                        <option value="Email">Email</option>
+                        <option value="SMS">SMS</option>
+                        <option value="Blockchain">Blockchain Address</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Contact Details</label>
+                    <input type="text" id="contact" placeholder="Phone, Email or Address" required>
+                </div>
+                <div class="form-group">
+                    <label>Secret Message</label>
+                    <textarea id="message" rows="5" placeholder="Your final thoughts..." required></textarea>
+                </div>
+                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                    <button type="submit" class="pulse-button" style="padding: 0.8rem 2rem;">SAVE TO VAULT</button>
+                    <button type="button" class="btn" id="closeModal">CANCEL</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+
+</html>
