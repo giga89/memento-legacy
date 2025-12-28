@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    container_name: memento_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-memento_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memento_password}
+      POSTGRES_DB: ${POSTGRES_DB:-memento_db}
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: .
+    container_name: memento_backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-memento_user}:${POSTGRES_PASSWORD:-memento_password}@db:5432/${POSTGRES_DB:-memento_db}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      MEMENTO_EMAIL_SERVER: ${MEMENTO_EMAIL_SERVER}
+      MEMENTO_EMAIL_PORT: ${MEMENTO_EMAIL_PORT}
+      MEMENTO_EMAIL_USE_TLS: ${MEMENTO_EMAIL_USE_TLS}
+      MEMENTO_EMAIL_USER: ${MEMENTO_EMAIL_USER}
+      MEMENTO_EMAIL_PASS: ${MEMENTO_EMAIL_PASS}
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+
+  frontend:
+    image: nginx:alpine
+    container_name: memento_frontend
+    volumes:
+      - .:/usr/share/nginx/html
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    driver: local
