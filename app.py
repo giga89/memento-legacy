@@ -20,7 +20,7 @@ CORS(app)
 bcrypt = Bcrypt(app)
 
 # Configuration - Database & JWT
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///memento.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///memento.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'memento-legacy-default-key')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(days=7)
@@ -255,4 +255,4 @@ if __name__ == '__main__':
     # Start background check thread
     threading.Thread(target=check_triggers, daemon=True).start()
     
-    app.run(port=5000, debug=True, use_reloader=False) # use_reloader=False to prevent double thread start
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False) # use_reloader=False to prevent double thread start

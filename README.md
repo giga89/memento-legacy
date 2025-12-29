@@ -29,7 +29,25 @@ Se non vuoi usare Gmail:
 - Vai in **SMTP & API**.
 - Usa `smtp-relay.brevo.com` (Porta 587) e la chiave API come password.
 
-## 🏃 Esecuzione
+## 🐳 Esecuzione con Docker (Consigliato)
+
+Per una configurazione pronta per la produzione con database PostgreSQL:
+
+1. **Configura l'ambiente:**
+   Copia `.env.example` in `.env` e compila i campi (inclusi quelli del Database).
+
+2. **Avvia con Docker Compose:**
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. **Accedi all'applicazione:**
+   - **Frontend:** [http://localhost:8080](http://localhost:8080)
+   - **Backend API:** [http://localhost:5000](http://localhost:5000)
+
+I dati del database sono salvati localmente nella cartella `./postgres_data` e persistono al riavvio dei container.
+
+## 🛠️ Configurazione Manuale (Senza Docker)
 
 1. **Esegui il Backend:**
    ```bash
