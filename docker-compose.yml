@@ -26,6 +26,8 @@ services:
       MEMENTO_EMAIL_USE_TLS: ${MEMENTO_EMAIL_USE_TLS}
       MEMENTO_EMAIL_USER: ${MEMENTO_EMAIL_USER}
       MEMENTO_EMAIL_PASS: ${MEMENTO_EMAIL_PASS}
+    volumes:
+      - ./wallet.json:/app/wallet.json
     ports:
       - "5000:5000"
     depends_on:
@@ -41,6 +43,43 @@ services:
     depends_on:
       - backend
 
+  loki:
+    image: grafana/loki:latest
+    container_name: memento_loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    restart: always
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: memento_promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: memento_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
+    restart: always
+
 volumes:
   postgres_data:
+    driver: local
+  loki_data:
+    driver: local
+  grafana_data:
     driver: local

@@ -6,3 +6,7 @@ flask-jwt-extended
 flask-mail
 python-dotenv
 psycopg2-binary
+solana
+solders
+base58
+cryptography==42.0.5

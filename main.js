@@ -56,6 +56,9 @@ class MementoApp {
         document.getElementById('closeModal').onclick = () => this.closeModal();
         document.getElementById('toggleSimulation').onclick = () => this.toggleSimulation();
         document.getElementById('panicBtn').onclick = () => this.triggerPanic();
+        document.getElementById('publishBlockchain').onchange = (e) => {
+            document.getElementById('blockchainExtra').classList.toggle('hidden', !e.target.checked);
+        };
 
         this.messageForm.onsubmit = (e) => { e.preventDefault(); this.handleMessageSubmit(); };
     }
@@ -168,6 +171,7 @@ class MementoApp {
             const data = await resp.json();
             this.timeLeft = data.time_left;
             this.isSimulation = data.is_simulation;
+            this.blockchainWallet = data.blockchain_wallet; // We can show this if needed
             this.updateSimulationUI();
             this.updateTimerDisplay();
         } catch (err) { console.error("Poll failed", err); }
@@ -257,6 +261,15 @@ class MementoApp {
                     <button class="btn" style="color:red" onclick="app.deleteMessage(${m.id})">Del</button>
                 </div>
             `;
+            // Check for blockchain link
+            const bcTxId = m.blockchain_tx;
+            if (bcTxId) {
+                const bcLink = document.createElement('div');
+                bcLink.style.fontSize = '0.7rem';
+                bcLink.style.marginTop = '0.5rem';
+                bcLink.innerHTML = `On Chain: <a href="https://explorer.solana.com/tx/${bcTxId}?cluster=testnet" target="_blank" style="color:var(--accent-color)">View Tx</a> ${m.is_blockchain_only ? ' (Encrypted Only)' : ''}`;
+                div.appendChild(bcLink);
+            }
             this.messageList.appendChild(div);
         });
     }
@@ -266,7 +279,11 @@ class MementoApp {
         document.getElementById('recipient').value = msg ? msg.recipient : "";
         document.getElementById('channel').value = msg ? msg.channel : "Email";
         document.getElementById('contact').value = msg ? msg.contact : "";
-        document.getElementById('message').value = msg ? msg.text : "";
+        document.getElementById('message').value = msg ? (msg.is_blockchain_only ? "[STORED ON BLOCKCHAIN]" : msg.text) : "";
+        document.getElementById('publishBlockchain').checked = msg ? !!msg.blockchain_tx : false;
+        document.getElementById('bcPassword').value = msg ? msg.blockchain_password : "";
+        document.getElementById('blockchainOnly').checked = msg ? msg.is_blockchain_only : false;
+        document.getElementById('blockchainExtra').classList.toggle('hidden', !document.getElementById('publishBlockchain').checked);
         this.messageModal.style.display = 'flex';
     }
 
@@ -274,17 +291,49 @@ class MementoApp {
 
     async handleMessageSubmit() {
         const id = document.getElementById('editIndex').value;
+        const publishBc = document.getElementById('publishBlockchain').checked;
+        const bcOnly = document.getElementById('blockchainOnly').checked;
+        const bcPassword = document.getElementById('bcPassword').value;
+
+        let messageText = document.getElementById('message').value;
+        let blockchainTx = null;
+
+        if (publishBc) {
+            if (!bcPassword) return alert("Blockchain password required");
+            const encryptedText = CryptoJS.AES.encrypt(messageText, bcPassword).toString();
+
+            const bcResp = await fetch(`${this.apiUrl}/blockchain/publish`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`
+                },
+                body: JSON.stringify({ encrypted_text: encryptedText })
+            });
+
+            if (bcResp.ok) {
+                const bcData = await bcResp.json();
+                blockchainTx = bcData.tx_signature;
+                if (bcOnly) messageText = "[CONTENT STORED ON BLOCKCHAIN]";
+            } else {
+                return alert("Blockchain publishing failed. Message not saved.");
+            }
+        }
+
         const msgData = {
             recipient: document.getElementById('recipient').value,
             channel: document.getElementById('channel').value,
             contact: document.getElementById('contact').value,
-            text: document.getElementById('message').value
+            text: messageText,
+            blockchain_tx: blockchainTx,
+            blockchain_password: bcPassword,
+            is_blockchain_only: bcOnly
         };
 
         const method = id ? 'PUT' : 'POST';
         const url = id ? `${this.apiUrl}/messages/${id}` : `${this.apiUrl}/messages`;
 
-        await fetch(url, {
+        const resp = await fetch(url, {
             method,
             headers: {
                 'Content-Type': 'application/json',
@@ -292,8 +341,13 @@ class MementoApp {
             },
             body: JSON.stringify(msgData)
         });
-        this.closeModal();
-        this.renderMessages();
+
+        if (resp.ok) {
+            this.closeModal();
+            this.renderMessages();
+        } else {
+            alert("Failed to save message to database.");
+        }
     }
 
     async deleteMessage(id) {
