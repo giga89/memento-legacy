@@ -1,0 +1,8 @@
+postgres_data
+.git
+__pycache__
+*.pyc
+instance
+node_modules
+.env
+wallet.json

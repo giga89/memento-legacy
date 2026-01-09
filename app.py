@@ -11,12 +11,45 @@ import time
 import random
 import string
 from dotenv import load_dotenv
+import json
+import logging
+import traceback
+from solana.rpc.api import Client
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey
+from solders.system_program import TransferParams, transfer
+from solders.transaction import Transaction
+from solders.message import Message as SolanaMessage
+from cryptography.fernet import Fernet
+import base64
+import hashlib
+from solders.instruction import Instruction
 
 # Carica variabili d'ambiente dal file .env
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+# Configure logging to ensure it works with Flask
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
+
+# Also configure root logger
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
+logger = app.logger
+
+def log_event(event_type, **kwargs):
+    """Helper to log structured events as JSON strings"""
+    payload = {"event": event_type, "timestamp": datetime.datetime.utcnow().isoformat(), **kwargs}
+    msg = json.dumps(payload)
+    print(f"JSON_LOG: {msg}", flush=True) # Direct print for Docker
+    logger.info(msg)
+    import sys
+    sys.stdout.flush()
 bcrypt = Bcrypt(app)
 
 # Configuration - Database & JWT
@@ -50,6 +83,12 @@ class User(db.Model):
     is_triggered = db.Column(db.Boolean, default=False) # To avoid double sending
     messages = db.relationship('Message', backref='owner', lazy=True, cascade="all, delete-orphan")
 
+class BlockchainMessage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tx_signature = db.Column(db.String(200), unique=True, nullable=False)
+    encrypted_content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     recipient = db.Column(db.String(100), nullable=False)
@@ -57,14 +96,29 @@ class Message(db.Model):
     contact = db.Column(db.String(200), nullable=False)
     text = db.Column(db.Text, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Blockchain enhancements
+    blockchain_tx = db.Column(db.String(200), nullable=True)
+    blockchain_password = db.Column(db.String(100), nullable=True)
+    is_blockchain_only = db.Column(db.Boolean, default=False)
 
 # Email Sending Logic
-def send_legacy_email(recipient_email, recipient_name, user_name, message_text):
+def send_legacy_email(recipient_email, recipient_name, user_name, message_text, blockchain_tx=None, blockchain_password=None):
     try:
+        body = f"Hello {recipient_name},\n\n{user_name} has left this legacy message for you:\n\n---\n{message_text}\n---\n\n"
+        
+        if blockchain_tx:
+            body += f"VERIFICATION ON BLOCKCHAIN:\n"
+            body += f"This message is also stored on the Solana Blockchain for immutability.\n"
+            body += f"Transaction ID: {blockchain_tx}\n"
+            body += f"Encryption Password: {blockchain_password}\n"
+            body += f"You can verify and decrypt it independently at: http://localhost:8080/decrypt.html\n\n"
+            
+        body += "Sent via Memento Digital Legacy."
+
         msg = MailMessage(
             subject=f"A Legacy Message from {user_name} via Memento",
             recipients=[recipient_email],
-            body=f"Hello {recipient_name},\n\n{user_name} has left this legacy message for you:\n\n---\n{message_text}\n---\n\nSent via Memento Digital Legacy."
+            body=body
         )
         mail.send(msg)
         return True
@@ -87,19 +141,122 @@ def check_triggers():
                     elapsed = (now - user.last_heartbeat).total_seconds()
                     
                     if elapsed >= limit:
-                        print(f"TRIGGER: Sending messages for user {user.email}")
+                        log_event("switch_triggered", user_id=user.id, email=user.email)
                         user.is_triggered = True
                         db.session.commit()
                         
                         for msg in user.messages:
                             if msg.channel.upper() == 'EMAIL':
-                                send_legacy_email(msg.contact, msg.recipient, user.email, msg.text)
+                                display_text = msg.text
+                                if msg.is_blockchain_only:
+                                    display_text = "[CONTENT STORED ON BLOCKCHAIN - SEE BELOW FOR DETAILS]"
+                                send_legacy_email(msg.contact, msg.recipient, user.email, display_text, msg.blockchain_tx, msg.blockchain_password)
                             else:
                                 print(f"[STUB] Channel {msg.channel} not implemented yet.")
             except Exception as e:
                 print(f"Error in background loop: {e}")
             
             time.sleep(10) # Check every 10 seconds
+
+# Solana Wallet Setup
+WALLET_PATH = "wallet.json"
+SOLANA_RPC_URL = os.environ.get("SOLANA_RPC_URL", "https://api.testnet.solana.com")
+solana_client = Client(SOLANA_RPC_URL)
+
+def get_or_create_wallet():
+    if os.path.exists(WALLET_PATH):
+        try:
+            with open(WALLET_PATH, "r") as f:
+                content = f.read().strip()
+                if content:
+                    secret = json.loads(content)
+                    return Keypair.from_bytes(bytes(secret))
+        except Exception as e:
+            print(f"Error reading wallet: {e}, creating new one")
+            pass
+            
+    # Create new wallet if file doesn't exist or is empty/invalid
+    new_keypair = Keypair()
+    with open(WALLET_PATH, "w") as f:
+        json.dump(list(bytes(new_keypair)), f)
+        f.flush()
+        os.fsync(f.fileno())
+    print(f"New wallet created: {new_keypair.pubkey()}")
+    return new_keypair
+
+app_wallet = get_or_create_wallet()
+
+# Blockchain Routes
+@app.route('/api/blockchain/wallet', methods=['GET'])
+def get_blockchain_wallet():
+    return jsonify({"address": str(app_wallet.pubkey())})
+
+@app.route('/api/blockchain/publish', methods=['POST'])
+@jwt_required()
+def publish_to_blockchain():
+    data = request.json
+    encrypted_text = data.get('encrypted_text')
+    
+    if not encrypted_text:
+        return jsonify({"msg": "Missing encrypted text"}), 400
+
+    try:
+        # Solana Memo Program ID
+        # Using the ID compatible with the installed spl library
+        memo_program_id = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
+        
+        recent_blockhash = solana_client.get_latest_blockhash().value.blockhash
+        
+        # Create instruction for Memo Program
+        instruction = Instruction(
+            program_id=memo_program_id,
+            data=bytes(encrypted_text, "utf-8"),
+            accounts=[]
+        )
+        
+        # Create transaction
+        txn = Transaction.new_signed_with_payer(
+            instructions=[instruction],
+            payer=app_wallet.pubkey(),
+            signing_keypairs=[app_wallet],
+            recent_blockhash=recent_blockhash
+        )
+        
+        result = solana_client.send_transaction(txn)
+        tx_sig = str(result.value)
+        
+        # Store in DB for reference
+        new_bc_msg = BlockchainMessage(tx_signature=tx_sig, encrypted_content=encrypted_text)
+        db.session.add(new_bc_msg)
+        db.session.commit()
+        
+        log_event("blockchain_publish_success", signature=tx_sig)
+        return jsonify({"tx_signature": tx_sig}), 201
+    except Exception as e:
+        traceback.print_exc()
+        log_event("blockchain_publish_error", error=str(e))
+        return jsonify({"msg": f"Blockchain error: {str(e)}"}), 500
+
+@app.route('/api/blockchain/retrieve/<string:tx_sig>', methods=['GET'])
+def retrieve_from_blockchain(tx_sig):
+    # This is a fallback/helper. Frontend can also fetch directly via Web3.js
+    try:
+        from solders.signature import Signature
+        sig = Signature.from_string(tx_sig)
+        tx_data = solana_client.get_transaction(sig, max_supported_transaction_version=0)
+        
+        if tx_data.value is None:
+             return jsonify({"msg": "Transaction not found"}), 404
+             
+        # Extract memo (simplified for demo)
+        # In a real app we'd parse the actual instruction data
+        bc_msg = BlockchainMessage.query.filter_by(tx_signature=tx_sig).first()
+        if bc_msg:
+            return jsonify({"encrypted_content": bc_msg.encrypted_content})
+            
+        return jsonify({"msg": "Content not found in local cache"}), 404
+    except Exception as e:
+        return jsonify({"msg": str(e)}), 500
 
 # Auth Routes
 @app.route('/api/register', methods=['POST'])
@@ -129,6 +286,7 @@ def register():
         # In developing we might want to return the code for testing if email fails
         # return jsonify({"msg": "User created, but email failed", "code": code}), 201
     
+    log_event("user_registered", email=data['email'])
     return jsonify({"msg": "User created. Please check your email for the verification code."}), 201
 
 @app.route('/api/verify', methods=['POST'])
@@ -151,9 +309,12 @@ def login():
     user = User.query.filter_by(email=data['email']).first()
     if user and bcrypt.check_password_hash(user.password, data['password']):
         if not user.is_verified:
+            log_event("login_failed_unverified", email=data['email'])
             return jsonify({"msg": "Please verify your email first"}), 403
         access_token = create_access_token(identity=str(user.id))
+        log_event("login_success", email=data['email'])
         return jsonify(access_token=access_token, email=user.email), 200
+    log_event("login_failed_bad_credentials", email=data['email'])
     return jsonify({"msg": "Bad email or password"}), 401
 
 # App Routes
@@ -184,6 +345,7 @@ def heartbeat():
     user.last_heartbeat = datetime.datetime.utcnow()
     user.is_triggered = False # Reset trigger on heartbeat
     db.session.commit()
+    log_event("heartbeat_received", user_id=user.id, email=user.email)
     return jsonify({"msg": "Heartbeat received"}), 200
 
 @app.route('/api/toggle-simulation', methods=['POST'])
@@ -207,7 +369,10 @@ def get_messages():
         "recipient": m.recipient,
         "channel": m.channel,
         "contact": m.contact,
-        "text": m.text
+        "text": m.text,
+        "blockchain_tx": m.blockchain_tx,
+        "blockchain_password": m.blockchain_password,
+        "is_blockchain_only": m.is_blockchain_only
     } for m in msgs])
 
 @app.route('/api/messages', methods=['POST'])
@@ -220,7 +385,10 @@ def add_message():
         channel=data['channel'],
         contact=data['contact'],
         text=data['text'],
-        user_id=user_id
+        user_id=user_id,
+        blockchain_tx=data.get('blockchain_tx'),
+        blockchain_password=data.get('blockchain_password'),
+        is_blockchain_only=data.get('is_blockchain_only', False)
     )
     db.session.add(new_msg)
     db.session.commit()
@@ -236,6 +404,9 @@ def update_message(msg_id):
     msg.channel = data['channel']
     msg.contact = data['contact']
     msg.text = data['text']
+    msg.blockchain_tx = data.get('blockchain_tx')
+    msg.blockchain_password = data.get('blockchain_password')
+    msg.is_blockchain_only = data.get('is_blockchain_only', False)
     db.session.commit()
     return jsonify({"msg": "Message updated"}), 200
 
